@@ -16,9 +16,11 @@ Built with **Next.js 16 (App Router)**, React 19, TypeScript, Tailwind CSS 4, sh
 3. Builds honest options: separate video/audio streams are paired into MP4 (H.264/AV1/HEVC + AAC) or WebM (VP9/AV1 + Opus);
    audio-only as M4A/Opus (original) or MP3 (converted). Nothing is invented — an option exists only if it can be produced.
 4. **Selects the highest available resolution automatically** (calculated from the real formats every time).
-5. **MP4 video: streams straight into the browser's download.** yt-dlp downloads video and audio, FFmpeg merges them
-   into fragmented MP4 on the fly, and the bytes go to the browser as they are made — the browser's download starts at
-   once and nothing is stored on the server. (No percentage in the browser: the final size is only known at the end.)
+5. **MP4 video from a single file streams straight into the browser's download**: the download starts at once and
+   nothing is stored on the server. With `STREAM_MERGED_DOWNLOADS=true`, MP4 that needs separate video and audio streams
+   too: two yt-dlp processes feed FFmpeg, which merges them into fragmented MP4 on the fly. This is off by default
+   because the two processes need more memory than small hosts (e.g. Render's free plan) have.
+   (No percentage in the browser: the final size is only known at the end.)
 6. **Everything else** (WebM, audio, HLS sources, or as a fallback) is prepared on the server first (download → merge →
    optional MP3 conversion) with real progress, then saved (resumable with HTTP Range). Files are deleted after
    `FILE_TTL_MINUTES`.
@@ -110,6 +112,7 @@ A cookies file (`YTDLP_COOKIES_FILE`) from an account you own can help; use it a
 | `JOB_TIMEOUT_MINUTES` / `ANALYSIS_TIMEOUT_SECONDS` | 30 / 60 | Processing timeouts |
 | `RATE_LIMIT_ANALYZE_PER_MINUTE` / `RATE_LIMIT_DOWNLOAD_PER_MINUTE` | 20 / 10 | Per client |
 | `TRUST_PROXY` | false | Use `X-Forwarded-For` for client IPs |
+| `STREAM_MERGED_DOWNLOADS` | false | Stream video+audio MP4 while merging. Needs more memory than small hosts have; leave off on Render's free plan |
 
 ## API
 

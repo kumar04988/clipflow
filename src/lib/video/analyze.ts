@@ -148,6 +148,7 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
     duration,
     ffmpegAvailable: capabilities.ffmpeg,
     maxFileSizeBytes: config.maxFileSizeBytes,
+    streamMergedDownloads: config.streamMergedDownloads,
   });
 
   let blockedReason: string | null = null;

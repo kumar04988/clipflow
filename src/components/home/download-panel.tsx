@@ -149,8 +149,10 @@ export function DownloadPanel(props: DownloadPanelProps) {
             )}
             {streamHref && selected ? (
               // A real link, not a script: mobile browsers hand it straight to their download manager.
+              // No `download` attribute: the server's "attachment" header saves the file, and an error opens as a
+              // readable page instead of being saved as a broken file named "stream".
               <Button asChild size="2xl" className="w-full">
-                <a href={streamHref} download onClick={() => props.onStreamStart(selected.id)}>
+                <a href={streamHref} onClick={() => props.onStreamStart(selected.id)}>
                   <Download data-icon="inline-start" aria-hidden="true" />
                   Download
                 </a>

@@ -23,6 +23,7 @@ const schema = z.object({
   RATE_LIMIT_ANALYZE_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
   RATE_LIMIT_DOWNLOAD_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(10),
   TRUST_PROXY: booleanFlag.default(false),
+  STREAM_MERGED_DOWNLOADS: booleanFlag.default(false),
 });
 
 export interface AppConfig {
@@ -43,6 +44,8 @@ export interface AppConfig {
   rateLimitAnalyzePerMinute: number;
   rateLimitDownloadPerMinute: number;
   trustProxy: boolean;
+  /** Stream video+audio while merging (two yt-dlp processes at once). Needs more memory than small hosts have. */
+  streamMergedDownloads: boolean;
 }
 
 let cached: AppConfig | null = null;
@@ -74,6 +77,7 @@ export function getConfig(): AppConfig {
     rateLimitAnalyzePerMinute: env.RATE_LIMIT_ANALYZE_PER_MINUTE,
     rateLimitDownloadPerMinute: env.RATE_LIMIT_DOWNLOAD_PER_MINUTE,
     trustProxy: env.TRUST_PROXY,
+    streamMergedDownloads: env.STREAM_MERGED_DOWNLOADS,
   };
   return cached;
 }

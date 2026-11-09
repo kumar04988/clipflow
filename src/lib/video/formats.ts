@@ -29,6 +29,7 @@ export interface BuildContext {
   duration: number | null;
   ffmpegAvailable: boolean;
   maxFileSizeBytes: number;
+  streamMergedDownloads: boolean;
 }
 
 export interface PlannedPart {
@@ -276,7 +277,8 @@ function buildVideoOption(
       available: true,
       unavailableReason: null,
       // Only MP4: a streamed WebM has no duration, so players can't seek in it.
-      streamable: container === "mp4" && isPlainHttp(video) && (!audio || isPlainHttp(audio)),
+      // Video+audio streams run two yt-dlp processes at once, which can crash small servers, so it's opt-in.
+      streamable: container === "mp4" && isPlainHttp(video) && (!audio || (context.streamMergedDownloads && isPlainHttp(audio))),
       selector: audio ? `${video.format_id}+${audio.format_id}` : video.format_id!,
       mergeFormat: audio ? (container as OutputContainer) : null,
       extractAudio: null,
