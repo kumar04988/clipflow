@@ -8,9 +8,8 @@ import { platformFromExtractor } from "../shared/platforms.ts";
 import { getConfig } from "../server/config.ts";
 import { getState } from "../server/state.ts";
 import { AppError } from "../server/errors.ts";
-import { runProcess } from "../server/process.ts";
 import { BlockedDestinationError, DnsLookupError, resolvePublicAddress } from "../security/resolve.ts";
-import { baseYtDlpArgs, getEngineCapabilities } from "./engine.ts";
+import { baseYtDlpArgs, getEngineCapabilities, runYtDlp } from "./engine.ts";
 import { buildQualityOptions, defaultOptionId, toPublicOption, type EngineFormat, type InternalOption } from "./formats.ts";
 import { mapEngineError } from "./errors.ts";
 import type { CachedAnalysis } from "./types.ts";
@@ -112,7 +111,7 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
   let stdout: string;
   try {
     const args = [...(await baseYtDlpArgs()), "--dump-single-json", "--skip-download", "--no-warnings", "--", url];
-    const result = await runProcess(config.ytDlpPath, args, {
+    const result = await runYtDlp(args, {
       timeoutMs: config.analysisTimeoutMs,
       collectStdout: true,
       maxStdoutBytes: 48 * 1024 * 1024,

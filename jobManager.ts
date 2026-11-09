@@ -9,8 +9,8 @@ import { isActiveStatus } from "../../types/index.ts";
 import { getConfig } from "../server/config.ts";
 import { getState } from "../server/state.ts";
 import { AppError } from "../server/errors.ts";
-import { runProcess, terminateProcessTree } from "../server/process.ts";
-import { baseYtDlpArgs } from "../video/engine.ts";
+import { terminateProcessTree } from "../server/process.ts";
+import { baseYtDlpArgs, removeCookieCopies, runYtDlp } from "../video/engine.ts";
 import { getCachedAnalysis } from "../video/analyze.ts";
 import { mapEngineError } from "../video/errors.ts";
 import { describeOption } from "../shared/quality.ts";
@@ -307,7 +307,7 @@ async function runJob(job: Job): Promise<void> {
       await removeJobDir(job);
       return;
     }
-    const running = runProcess(config.ytDlpPath, args, {
+    const running = runYtDlp(args, {
       timeoutMs: config.jobTimeoutMs,
       onLine: (line, stream) => {
         if (stream === "stdout") handleOutputLine(job, line);
@@ -412,6 +412,7 @@ export function ensureJobSystemStarted(): Promise<void> {
   state.started ??= (async () => {
     const { jobsDir } = getConfig();
     await fsp.mkdir(jobsDir, { recursive: true, mode: 0o700 });
+    await removeCookieCopies();
     const known = new Set(state.jobs.keys());
     for (const name of await fsp.readdir(jobsDir)) {
       if (isJobId(name) && !known.has(name)) await fsp.rm(path.join(jobsDir, name), { recursive: true, force: true });

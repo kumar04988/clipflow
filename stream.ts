@@ -11,7 +11,7 @@ import { getState } from "../server/state.ts";
 import { AppError } from "../server/errors.ts";
 import { runProcess, terminateProcessTree, type RunningProcess, type RunResult } from "../server/process.ts";
 import { activeJobIds } from "../jobs/jobManager.ts";
-import { baseYtDlpArgs } from "../video/engine.ts";
+import { baseYtDlpArgs, runYtDlp } from "../video/engine.ts";
 import { getCachedAnalysis } from "../video/analyze.ts";
 import { mapEngineError } from "../video/errors.ts";
 import { buildDownloadFileName, mimeTypeFor, qualityTag } from "./filename.ts";
@@ -55,8 +55,7 @@ function firstChunk(stdout: Readable): Promise<Buffer | null> {
 /** Starts the processes that write the file to the returned `output`. */
 function startPipeline(config: AppConfig, baseArgs: string[], url: string, formatIds: string[]): { processes: RunningProcess[]; output: Readable } {
   const ytDlp = (formatId: string) =>
-    runProcess(
-      config.ytDlpPath,
+    runYtDlp(
       [...baseArgs, "--format", formatId, "--output", "-", "--max-filesize", `${config.maxFileSizeMb}M`, "--no-progress", "--", url],
       { timeoutMs: config.jobTimeoutMs, rawStdout: true },
     );
