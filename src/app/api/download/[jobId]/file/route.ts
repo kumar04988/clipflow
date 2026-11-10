@@ -19,12 +19,17 @@ async function serveFile(request: NextRequest, session: Session, jobId: string, 
   if (job.status === "expired") {
     return fileErrorResponse(request, 410, "expired", "This file has expired and was deleted from the server. Analyze the link again to prepare a new one.");
   }
-  if (job.status !== "ready" || !job.filePath || !job.fileName) {
+  if (job.status !== "ready") {
     return fileErrorResponse(request, 409, "not_ready", "This file isn’t ready yet. Go back and wait until it says “Ready to save”.");
   }
+  // A media job has one file per chosen item, picked with ?item=<position in the post>.
+  const item = request.nextUrl.searchParams.get("item");
+  const mediaFile = job.files && item !== null ? job.files.find((file) => String(file.item.index) === item) : undefined;
+  const target = mediaFile ? { path: mediaFile.path, name: mediaFile.name } : job.filePath && job.fileName ? { path: job.filePath, name: job.fileName } : null;
+  if (!target) return fileErrorResponse(request, 404, "not_found", "This download link is invalid.");
 
   // Defense in depth: the path must be inside the jobs folder.
-  const filePath = path.resolve(job.filePath);
+  const filePath = path.resolve(target.path);
   if (!filePath.startsWith(path.resolve(getConfig().jobsDir) + path.sep)) {
     return fileErrorResponse(request, 404, "not_found", "This download link is invalid.");
   }
@@ -43,7 +48,7 @@ async function serveFile(request: NextRequest, session: Session, jobId: string, 
   const headers: Record<string, string> = {
     "Content-Type": mimeTypeFor(path.extname(filePath).slice(1)),
     "Content-Length": String(end - start + 1),
-    "Content-Disposition": contentDisposition(job.fileName),
+    "Content-Disposition": contentDisposition(target.name),
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
@@ -53,7 +58,7 @@ async function serveFile(request: NextRequest, session: Session, jobId: string, 
 
   // Streamed from disk in chunks — the file is never loaded into memory.
   const fileStream = fs.createReadStream(filePath, { start, end });
-  if (end === stat.size - 1) fileStream.once("end", () => markDelivered(job));
+  if (end === stat.size - 1) fileStream.once("end", () => markDelivered(job, mediaFile));
   return new Response(Readable.toWeb(fileStream) as unknown as ReadableStream<Uint8Array>, {
     status: range ? 206 : 200,
     headers,

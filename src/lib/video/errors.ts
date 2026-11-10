@@ -101,11 +101,17 @@ const RULES: Array<{ pattern: RegExp; code: string; status: number; message: str
     status: 500,
     message: "The media was downloaded but couldn’t be processed. Try another quality or format.",
   },
+  { pattern: /No video formats found|No video could be found/i, code: "no_media", status: 422, message: "There’s no downloadable video on this page (it may be a photo or text post)." },
 ];
+
+const LOGGED_ERROR_LINES = 3;
 
 export function mapEngineError(output: string): EngineErrorInfo {
   for (const rule of RULES) {
     if (rule.pattern.test(output)) return { code: rule.code, status: rule.status, message: rule.message };
   }
+  // Only the server log gets the raw text, so an unknown failure can still be diagnosed (e.g. in the host's logs).
+  const errorLines = output.split("\n").filter((line) => line.startsWith("ERROR:"));
+  console.error("[clipflow] Unrecognized engine error:", (errorLines.length > 0 ? errorLines : output.split("\n")).slice(-LOGGED_ERROR_LINES).join(" | "));
   return { code: "engine_error", status: 502, message: "The video couldn’t be processed. Try again or try a different link." };
 }

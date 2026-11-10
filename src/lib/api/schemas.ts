@@ -10,4 +10,10 @@ export const createDownloadRequestSchema = z.strictObject({
   optionId: z.string().regex(/^(v\d{1,5}-[a-z0-9]{1,8}|a-[a-z0-9]{1,8})$/),
 });
 
+export const createMediaDownloadRequestSchema = z.strictObject({
+  analysisId: z.uuid(),
+  // 1-based positions of the chosen items in the post.
+  items: z.array(z.int().min(1).max(1000)).min(1).max(100),
+});
+
 export const jobIdSchema = z.uuid();

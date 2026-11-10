@@ -12,6 +12,7 @@ import { AnalysisError } from "./analysis-error";
 import { VideoPreview } from "./video-preview";
 import { QualitySelector } from "./quality-selector";
 import { DownloadPanel } from "./download-panel";
+import { MediaPostPanel } from "./media-post-panel";
 import { LinkFromQuery } from "./link-from-query";
 import { useVideoInfo } from "@/hooks/use-video-info";
 import { useDownloadJob } from "@/hooks/use-download-job";
@@ -63,9 +64,13 @@ export function HomeView() {
 
   const job = download.job;
   const jobStatus = job?.status;
+  const severalFiles = (job?.files?.length ?? 0) > 1;
   useEffect(() => {
-    if (jobStatus === "ready") toast.success("Your file is ready", { description: "Saving to your device…" });
-  }, [jobStatus]);
+    if (jobStatus !== "ready") return;
+    toast.success(severalFiles ? "Your files are ready" : "Your file is ready", {
+      description: severalFiles ? "Saving them one by one. If your browser asks, allow multiple downloads." : "Saving to your device…",
+    });
+  }, [jobStatus, severalFiles]);
 
   const focusInput = () => {
     const input = inputRef.current;
@@ -93,7 +98,13 @@ export function HomeView() {
     if (!video.info) return;
     select(optionId);
     resetDownload();
-    void startDownload(video.info.analysisId, optionId);
+    void startDownload(video.info.analysisId, { optionId });
+  };
+
+  const startItems = (items: number[]) => {
+    if (!video.info) return;
+    resetDownload();
+    void startDownload(video.info.analysisId, { items });
   };
 
   return (
@@ -131,6 +142,24 @@ export function HomeView() {
         {video.status === "ready" && video.info && (
           <div className="grid gap-4 lg:gap-5">
             <VideoPreview info={video.info} onChangeUrl={focusInput} onReset={resetAll} />
+            {video.info.media ? (
+              <MediaPostPanel
+                key={video.info.analysisId}
+                media={video.info.media}
+                fileTtlMinutes={engine?.limits.fileTtlMinutes ?? null}
+                job={job}
+                starting={download.starting}
+                startError={download.startError}
+                reconnecting={download.reconnecting}
+                onStart={startItems}
+                onCancel={() => void download.cancel()}
+                onSaveClick={download.markSaving}
+                onSaveAll={() => job && download.save(job)}
+                onChooseAgain={resetDownload}
+                onReanalyze={() => analyze(video.info?.url ?? video.url)}
+                onReset={resetAll}
+              />
+            ) : (
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-5">
               <QualitySelector
                 options={video.info.options}
@@ -162,6 +191,7 @@ export function HomeView() {
                 />
               </div>
             </div>
+            )}
           </div>
         )}
       </div>

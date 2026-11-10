@@ -44,6 +44,18 @@ export interface QualityOption {
   streamable: boolean;
 }
 
+export type MediaKind = "video" | "photo";
+
+/** One slide of a post that holds several photos/videos (e.g. an Instagram carousel). */
+export interface MediaItem {
+  /** 1-based position in the post; also the id used to request it. */
+  index: number;
+  kind: MediaKind;
+  /** A small preview image, not the full-size photo. */
+  thumbnail: string | null;
+  duration: number | null;
+}
+
 export interface VideoInfo {
   analysisId: string;
   url: string;
@@ -56,6 +68,8 @@ export interface VideoInfo {
   defaultOptionId: string | null;
   /** Set when nothing can be downloaded for this video (e.g. longer than the server limit). */
   blockedReason: string | null;
+  /** Set for photo posts and multi-item posts; `options` is then empty and items are downloaded by index. */
+  media: MediaItem[] | null;
   expiresAt: string;
 }
 
@@ -74,6 +88,16 @@ export type JobStatus =
 export interface ApiError {
   code: string;
   message: string;
+}
+
+/** One file of a multi-item download; each is saved separately. */
+export interface JobFileView {
+  index: number;
+  kind: MediaKind;
+  fileName: string;
+  fileSize: number;
+  fileUrl: string;
+  delivered: boolean;
 }
 
 export interface JobView {
@@ -96,8 +120,10 @@ export interface JobView {
   fileName: string | null;
   fileSize: number | null;
   fileUrl: string | null;
+  /** Set (instead of fileName/fileUrl) when chosen items of a post are ready as separate files. */
+  files: JobFileView[] | null;
   expiresAt: string | null;
-  /** True once the server has finished sending the whole file to a browser. */
+  /** True once the server has finished sending the whole file (every file) to a browser. */
   delivered: boolean;
   error: ApiError | null;
   createdAt: string;

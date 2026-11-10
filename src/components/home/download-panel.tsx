@@ -23,7 +23,7 @@ function minutesLeft(iso: string | null): number | null {
   return Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 60_000));
 }
 
-function SaveHint() {
+export function SaveHint() {
   const [apple, setApple] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setApple(isAppleMobile()), []);

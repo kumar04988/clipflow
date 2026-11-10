@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Clock, Copy, ExternalLink, Layers, PencilLine, RotateCcw, User } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, Images, Layers, PencilLine, RotateCcw, User } from "lucide-react";
 import { toast } from "sonner";
 import type { VideoInfo } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Thumbnail } from "@/components/shared/thumbnail";
 import { formatDuration } from "@/lib/shared/format";
 import { formatDisplayUrl } from "@/lib/shared/url";
 import { describeOption, selectDefaultOption } from "@/lib/shared/quality";
+import { describeMediaCounts } from "@/lib/shared/media";
 
 const ICON_BUTTON = "grid size-9 shrink-0 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-3 hover:text-foreground";
 
@@ -57,13 +58,23 @@ export function VideoPreview({ info, onChangeUrl, onReset }: { info: VideoInfo; 
                 <dd className="truncate">{info.uploader}</dd>
               </div>
             )}
-            <div className="flex items-center gap-1.5">
-              <dt>
-                <Clock className="size-3.5" aria-hidden="true" />
-                <span className="sr-only">Duration</span>
-              </dt>
-              <dd className="tabular-nums">{duration ?? "Unknown length"}</dd>
-            </div>
+            {info.media ? (
+              <div className="flex items-center gap-1.5">
+                <dt>
+                  <Images className="size-3.5" aria-hidden="true" />
+                  <span className="sr-only">Items</span>
+                </dt>
+                <dd className="tabular-nums">{describeMediaCounts(info.media)}</dd>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <dt>
+                  <Clock className="size-3.5" aria-hidden="true" />
+                  <span className="sr-only">Duration</span>
+                </dt>
+                <dd className="tabular-nums">{duration ?? "Unknown length"}</dd>
+              </div>
+            )}
             {best && (
               <div className="flex items-center gap-1.5">
                 <dt>

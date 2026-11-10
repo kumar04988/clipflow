@@ -8,6 +8,11 @@ import { apiFetch, ApiRequestError, toApiError, triggerFileDownload } from "@/li
 const POLL_MS = 800;
 const DELIVERY_POLL_MS = 2000;
 const DELIVERY_WATCH_MS = 15 * 60_000;
+// Browsers can drop downloads started at the same instant, so separate files start a moment apart.
+const SAVE_GAP_MS = 900;
+
+/** A quality option of a video, or the chosen items (1-based positions) of a photo/multi-item post. */
+export type DownloadChoice = { optionId: string } | { items: number[] };
 
 /**
  * Creates a download job and follows it by polling GET /api/download/:id.
@@ -31,7 +36,7 @@ export function useDownloadJob() {
   const isActive = job ? isActiveStatus(job.status) : false;
   const watchingDelivery = Boolean(job && job.status === "ready" && !job.delivered && watchDeliveryUntil > 0);
 
-  const start = useCallback(async (analysisId: string, optionId: string) => {
+  const start = useCallback(async (analysisId: string, choice: DownloadChoice) => {
     if (startingRef.current) return; // ignore double clicks
     startingRef.current = true;
     setStarting(true);
@@ -39,7 +44,7 @@ export function useDownloadJob() {
     try {
       const { job: created } = await apiFetch<{ job: JobView }>("/api/download", {
         method: "POST",
-        body: { analysisId, optionId },
+        body: { analysisId, ...choice },
         timeoutMs: 20_000,
       });
       jobIdRef.current = created.id;
@@ -98,10 +103,15 @@ export function useDownloadJob() {
   /** Call when the user taps the "Save file" link, to watch for the server confirming delivery. */
   const markSaving = useCallback(() => setWatchDeliveryUntil(Date.now() + DELIVERY_WATCH_MS), []);
 
+  /** Starts the browser download of the job's file, or of each separate file one after another. */
   const save = useCallback(
     (target: JobView) => {
-      if (!target.fileUrl) return;
-      triggerFileDownload(target.fileUrl);
+      const urls = target.files ? target.files.map((file) => file.fileUrl) : target.fileUrl ? [target.fileUrl] : [];
+      if (urls.length === 0) return;
+      urls.forEach((url, position) => {
+        if (position === 0) triggerFileDownload(url);
+        else setTimeout(() => triggerFileDownload(url), position * SAVE_GAP_MS);
+      });
       markSaving();
     },
     [markSaving],
@@ -109,7 +119,7 @@ export function useDownloadJob() {
 
   // Start the browser download automatically when a job we watched becomes ready.
   useEffect(() => {
-    if (job?.status !== "ready" || !job.fileUrl) return;
+    if (job?.status !== "ready" || (!job.fileUrl && !job.files)) return;
     if (!seenActiveRef.current.has(job.id) || autoSavedRef.current.has(job.id)) return;
     autoSavedRef.current.add(job.id);
     save(job);
@@ -137,5 +147,5 @@ export function useDownloadJob() {
     setStreamedOptionId(null);
   }, []);
 
-  return { job, starting, startError, reconnecting, isActive, streamedOptionId, start, cancel, reset, markSaving, markStreamed };
+  return { job, starting, startError, reconnecting, isActive, streamedOptionId, start, cancel, reset, save, markSaving, markStreamed };
 }

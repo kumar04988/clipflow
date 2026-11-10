@@ -52,6 +52,12 @@ const MIME_TYPES: Record<string, string> = {
   ogg: "audio/ogg",
   aac: "audio/aac",
   flac: "audio/flac",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  avif: "image/avif",
 };
 
 export function mimeTypeFor(extension: string): string {

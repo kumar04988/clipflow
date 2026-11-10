@@ -2,21 +2,24 @@
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { VideoInfo } from "../../types/index.ts";
+import type { MediaItem, VideoInfo } from "../../types/index.ts";
 import { validateUrl } from "../shared/url.ts";
-import { platformFromExtractor } from "../shared/platforms.ts";
+import { detectPlatform, platformFromExtractor } from "../shared/platforms.ts";
 import { getConfig } from "../server/config.ts";
 import { getState } from "../server/state.ts";
 import { AppError } from "../server/errors.ts";
 import { BlockedDestinationError, DnsLookupError, resolvePublicAddress } from "../security/resolve.ts";
 import { baseYtDlpArgs, getEngineCapabilities, runYtDlp } from "./engine.ts";
-import { buildQualityOptions, defaultOptionId, toPublicOption, type EngineFormat, type InternalOption } from "./formats.ts";
+import { buildQualityOptions, defaultOptionId, hasVideo, isUsableFormat, toPublicOption, type EngineFormat, type InternalOption } from "./formats.ts";
 import { mapEngineError } from "./errors.ts";
-import type { CachedAnalysis } from "./types.ts";
+import type { CachedAnalysis, CachedMedia } from "./types.ts";
 
 export const ANALYSIS_TTL_MS = 30 * 60_000;
 const MAX_CACHED_ANALYSES = 500;
 const MAX_WAITING_ANALYSES = 20;
+const PREVIEW_MIN_WIDTH = 320;
+
+const thumbnailSchema = z.looseObject({ url: z.string().nullish(), preference: z.number().nullish(), width: z.number().nullish() });
 
 // Only the fields we use; everything else in yt-dlp's (large) JSON is ignored.
 const infoSchema = z.looseObject({
@@ -28,14 +31,19 @@ const infoSchema = z.looseObject({
   creator: z.string().nullish(),
   duration: z.number().nullish(),
   thumbnail: z.string().nullish(),
-  thumbnails: z.array(z.looseObject({ url: z.string().nullish(), preference: z.number().nullish(), width: z.number().nullish() })).nullish(),
+  thumbnails: z.array(thumbnailSchema).nullish(),
   extractor_key: z.string().nullish(),
   is_live: z.boolean().nullish(),
   live_status: z.string().nullish(),
   formats: z.array(z.looseObject({})).nullish(),
   format_id: z.string().nullish(),
   url: z.string().nullish(),
+  playlist_index: z.number().nullish(),
+  // Failed entries are null.
+  entries: z.array(z.looseObject({}).nullable()).nullish(),
 });
+
+type EngineInfo = z.infer<typeof infoSchema>;
 
 /** Limits how many yt-dlp analyses run at once; extra requests wait briefly in line. */
 async function acquireSlot(): Promise<() => void> {
@@ -57,21 +65,76 @@ async function acquireSlot(): Promise<() => void> {
   };
 }
 
-function pickThumbnail(info: z.infer<typeof infoSchema>): string | null {
+function toHttpsUrl(candidate: string | null | undefined): string | null {
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.protocol = "https:";
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function pickThumbnail(info: EngineInfo): string | null {
   const candidates = [info.thumbnail, ...[...(info.thumbnails ?? [])].sort((a, b) => (b.preference ?? 0) - (a.preference ?? 0) || (b.width ?? 0) - (a.width ?? 0)).map((thumb) => thumb.url)];
   for (const candidate of candidates) {
-    if (!candidate) continue;
-    try {
-      const url = new URL(candidate);
-      if (url.protocol === "https:" || url.protocol === "http:") {
-        url.protocol = "https:";
-        return url.href;
-      }
-    } catch {
-      // Ignore malformed thumbnail URLs.
-    }
+    const url = toHttpsUrl(candidate);
+    if (url) return url;
   }
   return null;
+}
+
+/** Width of a thumbnail; Instagram's CDN leaves it out but puts the size in the URL (e.g. "_p480x480_"). */
+function thumbnailWidth(thumb: z.infer<typeof thumbnailSchema>): number | null {
+  if (thumb.width) return thumb.width;
+  const hint = /_[ps](\d{2,4})x\d{2,4}[_&]/.exec(thumb.url ?? "");
+  return hint ? Number(hint[1]) : null;
+}
+
+/** The smallest thumbnail that still looks sharp in a grid tile; full-size photos are megabytes each. */
+function pickPreview(info: EngineInfo): string | null {
+  const sized = (info.thumbnails ?? [])
+    .map((thumb) => ({ url: toHttpsUrl(thumb.url), width: thumbnailWidth(thumb) }))
+    .filter((thumb): thumb is { url: string; width: number } => Boolean(thumb.url) && (thumb.width ?? 0) >= PREVIEW_MIN_WIDTH)
+    .sort((a, b) => a.width - b.width);
+  return sized[0]?.url ?? pickThumbnail(info);
+}
+
+function toMediaItem(info: EngineInfo, fallbackIndex: number): MediaItem | null {
+  const formats = (info.formats ?? []) as EngineFormat[];
+  const isVideo = formats.some((format) => isUsableFormat(format) && hasVideo(format));
+  if (!isVideo && !pickThumbnail(info)) return null;
+  return {
+    index: info.playlist_index ?? fallbackIndex,
+    kind: isVideo ? "video" : "photo",
+    thumbnail: pickPreview(info),
+    duration: isVideo && typeof info.duration === "number" && info.duration > 0 ? info.duration : null,
+  };
+}
+
+/**
+ * Instagram posts ("/p/ID", also "/username/p/ID") can hold photos, alone or mixed with videos.
+ * Reels and IGTV are always videos, so they keep yt-dlp's normal errors (e.g. "login required").
+ */
+function isPhotoPostUrl(url: string): boolean {
+  return detectPlatform(url).id === "instagram" && /^\/(?:[^/]+\/)?p\//.test(new URL(url).pathname);
+}
+
+/** A carousel (several photos/videos) or a single-photo post. Null for an ordinary video. */
+function extractMedia(info: EngineInfo): CachedMedia | null {
+  if (info._type === "playlist") {
+    const items = (info.entries ?? []).flatMap((entry, position) => {
+      const parsed = entry ? infoSchema.safeParse(entry) : null;
+      const item = parsed?.success ? toMediaItem(parsed.data, position + 1) : null;
+      return item ? [item] : [];
+    });
+    if (items.length === 0) throw new AppError("no_media", "This post has no photos or videos that can be downloaded.", 422);
+    return { items, playlist: true };
+  }
+  const item = toMediaItem(info, 1);
+  return item?.kind === "photo" ? { items: [{ ...item, index: 1 }], playlist: false } : null;
 }
 
 function pruneAnalyses(): void {
@@ -110,7 +173,11 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
   const release = await acquireSlot();
   let stdout: string;
   try {
-    const args = [...(await baseYtDlpArgs()), "--dump-single-json", "--skip-download", "--no-warnings", "--", url];
+    // --flat-playlist: a playlist/channel link is reported in seconds (it's rejected below) instead of opening every video.
+    const args = [...(await baseYtDlpArgs()), "--dump-single-json", "--skip-download", "--flat-playlist", "--no-warnings"];
+    // Without this flag one photo makes the whole post fail.
+    if (isPhotoPostUrl(url)) args.push("--ignore-no-formats-error");
+    args.push("--", url);
     const result = await runYtDlp(args, {
       timeoutMs: config.analysisTimeoutMs,
       collectStdout: true,
@@ -127,14 +194,15 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
     release();
   }
 
-  let info: z.infer<typeof infoSchema>;
+  let info: EngineInfo;
   try {
     info = infoSchema.parse(JSON.parse(stdout));
   } catch {
     throw new AppError("engine_error", "The engine returned data that couldn’t be read. Please try again.", 502);
   }
 
-  if (info._type === "playlist" || info._type === "multi_video") {
+  const media = isPhotoPostUrl(url) ? extractMedia(info) : null;
+  if (!media && (info._type === "playlist" || info._type === "multi_video")) {
     throw new AppError("playlist", "This link is a playlist, channel or profile. Paste a link to a single video.", 422);
   }
   if (info.is_live || info.live_status === "is_live" || info.live_status === "is_upcoming") {
@@ -143,7 +211,7 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
 
   const duration = typeof info.duration === "number" && info.duration > 0 ? info.duration : null;
   // Some extractors describe a single file at the top level instead of a "formats" list.
-  const formats = (info.formats ?? (info.url && info.format_id ? [info] : [])) as EngineFormat[];
+  const formats = media ? [] : ((info.formats ?? (info.url && info.format_id ? [info] : [])) as EngineFormat[]);
   let options: InternalOption[] = buildQualityOptions(formats, {
     duration,
     ffmpegAvailable: capabilities.ffmpeg,
@@ -167,6 +235,7 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
     platform,
     duration,
     options,
+    media,
     createdAt: Date.now(),
   };
   pruneAnalyses();
@@ -180,10 +249,11 @@ export async function analyzeVideo(rawUrl: string, sessionId: string): Promise<V
     title,
     uploader: info.uploader ?? info.channel ?? info.creator ?? null,
     duration,
-    thumbnail: pickThumbnail(info),
+    thumbnail: pickThumbnail(info) ?? media?.items.find((item) => item.thumbnail)?.thumbnail ?? null,
     options: publicOptions,
     defaultOptionId: defaultOptionId(publicOptions),
     blockedReason,
+    media: media?.items ?? null,
     expiresAt: new Date(analysis.createdAt + ANALYSIS_TTL_MS).toISOString(),
   };
 }
